@@ -3,8 +3,9 @@ FROM gcr.io/gcp-runtimes/ubuntu_18_0_4
 ENV PHPBREW_ROOT /root/.phpbrew
 ENV PHPBREW_HOME /root/.phpbrew
 ENV PHPBREW_SET_PROMPT 1
-# ENV PHP74_VERSION 7.4.28
-# ENV PHP80_VERSION 7.3.28
+ENV PHP73_VERSION 7.3.28
+ENV PHP74_VERSION 7.4.20
+ENV PHP80_VERSION 8.0.7
 
 # ENV DEBIAN_FRONTEND noninteractive
 RUN apt-get update \
@@ -36,6 +37,7 @@ RUN apt-get update \
   && rm -rf /var/lib/{apt,dpkg,cache,log}/ \
   && rm -rf /var/lib/apt/lists/*
 
+# Use a better shell
 RUN rm /bin/sh && ln -s /bin/bash /bin/sh
 
 # Install and initialize PHPBrew
@@ -45,80 +47,74 @@ RUN mkdir -p /usr/bin/ \
     && phpbrew init \
     && echo 'source $HOME/.phpbrew/bashrc' >> /root/.bashrc
 
-ENV PHP73_VERSION 7.3.28
-ENV PHP74_VERSION 7.4.20
-ENV PHP80_VERSION 8.0.7
-
-RUN phpbrew install "7.3" \
+# Install PHP 7.3
+RUN phpbrew install $PHP73_VERSION \
     +default +bcmath +bz2 +calendar +cli +ctype +dom +fileinfo +filter +json \
     +mbregex +mbstring +mhash +pcntl +pcre +pdo +phar +posix +readline +sockets \
     +tokenizer +xml +curl +zip +openssl=yes +opcache +fpm +sqlite +mysql \
     +default +intl +gettext
 
-RUN phpbrew install "7.4" \
+# Install PHP 7.4
+RUN phpbrew install $PHP74_VERSION \
     +default +bcmath +bz2 +calendar +cli +ctype +dom +fileinfo +filter +json \
     +mbregex +mbstring +mhash +pcntl +pcre +pdo +phar +posix +readline +sockets \
     +tokenizer +xml +curl +zip +openssl=yes +opcache +fpm +sqlite +mysql \
     +default +intl +gettext
 
-RUN phpbrew install "8.0" \
+# Install PHP 8.0
+RUN phpbrew install $PHP80_VERSION \
     +default +bcmath +bz2 +calendar +cli +ctype +dom +fileinfo +filter +json \
     +mbregex +mbstring +mhash +pcntl +pcre +pdo +phar +posix +readline +sockets \
     +tokenizer +xml +curl +zip +openssl=yes +opcache +fpm +sqlite +mysql \
     +default +intl +gettext
 
-# RUN source ~/.phpbrew/bashrc \
-#     && phpbrew each \
-#         phpbrew ext install grpc \
-#         && phpbrew ext install imagick \
-#         && phpbrew ext install memcache \
-#         && phpbrew ext enable opcache
+# Install and enable Imagemagick extension for PHP 7.3, 7.4, and 8.0
+RUN source ~/.phpbrew/bashrc \
+    && phpbrew switch $PHP73_VERSION && phpbrew ext install imagick \
+    && phpbrew switch $PHP74_VERSION && phpbrew ext install imagick \
+    # On PHP 8.0, Imagemagick must be compiled from src because it is not yet
+    # available via PECL
+    && phpbrew switch $PHP80_VERSION \
+        && git clone https://github.com/Imagick/imagick /tmp/imagick \
+        && cd /tmp/imagick \
+        && phpize \
+        && ./configure \
+        && make \
+        && make install \
+        && phpbrew ext enable imagick
 
-# RUN apt-get update && \
-#     apt-get -y install \
-#             autoconf \
-#             build-essential \
-#             git-core \
-#             jq \
-#             memcached \
-#             php-imagick \
-#             php-memcached \
-#             python-ipaddr \
-#             wget \
-#             zip \
-#             zlib1g-dev \
-#             pkg-config \
-#             sqlite3 \
-#             libsqlite3-dev \
-#             libonig-dev \
-#             php-pear
+# Install and enable gRPC/memcache/opcache extensions for PHP 7.3, 7.4, and 8.0
+RUN source ~/.phpbrew/bashrc \
+    && phpbrew each phpbrew ext install grpc \
+    && phpbrew each phpbrew ext install memcache \
+    && phpbrew each phpbrew ext enable opcache
 
-# # # Install composer
-# RUN wget -q -O /usr/bin/composer https://getcomposer.org/composer.phar && chmod +x /usr/bin/composer
+# Install composer
+RUN wget -q -O /usr/bin/composer https://getcomposer.org/composer.phar && chmod +x /usr/bin/composer
 
-# # # Install Google Cloud SDK
-# RUN curl https://dl.google.com/dl/cloudsdk/release/google-cloud-sdk.tar.gz \
-#         -o ${HOME}/google-cloud-sdk.tar.gz \
-#     && tar xzf ${HOME}/google-cloud-sdk.tar.gz -C $HOME \
-#     && ${HOME}/google-cloud-sdk/install.sh \
-#         --usage-reporting false \
-#         --path-update false \
-#         --command-completion false \
-#     && source ${HOME}/google-cloud-sdk/path.bash.inc
+# Install Google Cloud SDK
+RUN curl https://dl.google.com/dl/cloudsdk/release/google-cloud-sdk.tar.gz \
+        -o ${HOME}/google-cloud-sdk.tar.gz \
+    && tar xzf ${HOME}/google-cloud-sdk.tar.gz -C $HOME \
+    && ${HOME}/google-cloud-sdk/install.sh \
+        --usage-reporting false \
+        --path-update false \
+        --command-completion false \
+    && source ${HOME}/google-cloud-sdk/path.bash.inc
 
-# # Configure Google Cloud SDK
-# RUN gcloud config set app/promote_by_default false && \
-#     gcloud config set disable_prompts true && \
-#     gcloud -q components install app-engine-python && \
-#     gcloud -q components update
+# Configure Google Cloud SDK
+RUN gcloud config set app/promote_by_default false && \
+    gcloud config set disable_prompts true && \
+    gcloud -q components install app-engine-python && \
+    gcloud -q components update
 
-# # # Install Cloud SQL proxy
-# RUN wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy \
-#     && chmod +x cloud_sql_proxy \
-#     && mv cloud_sql_proxy /usr/local/bin
+# Install Cloud SQL proxy
+RUN wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy \
+    && chmod +x cloud_sql_proxy \
+    && mv cloud_sql_proxy /usr/local/bin
 
-# # # Build php-cs-fixer
-# RUN composer global require friendsofphp/php-cs-fixer
+# Build php-cs-fixer
+RUN composer global require friendsofphp/php-cs-fixer
 
-# # # Make composer and gcloud bins available via the PATH variable
-# ENV PATH="$PATH:/root/.config/composer/vendor/bin:/root/google-cloud-sdk/bin"
+# Make composer and gcloud bins available via the PATH variable
+ENV PATH="$PATH:/root/.config/composer/vendor/bin:/root/google-cloud-sdk/bin"
